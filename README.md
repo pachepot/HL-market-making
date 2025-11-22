@@ -1,12 +1,16 @@
-# 🤖 Hyperliquid Market Maker Bot
+# Hyperliquid Market Maker Bot
 
 Hyperliquid 거래소용 마켓메이커 봇
 
-## 📋 사전 준비
+## ⚙️ 설정
 
-1. `config.json`에 다음 정보를 입력하세요:
-   - `address`: 지갑 주소
-   - `pkey`: Private Key
+`config.json` 예시:
+```json
+{
+  "address": "YOUR_WALLET_ADDRESS",
+  "pkey": "YOUR_PRIVATE_KEY"
+}
+```
 
 ## 🚀 실행 방법
 
@@ -18,16 +22,6 @@ python hyperliquid_spot_mm.py
 ### HIP3 마켓메이킹 (XYZ)
 ```bash
 python hyperliquid_hip_mm.py
-```
-
-## ⚙️ 설정
-
-`config.json` 예시:
-```json
-{
-  "address": "YOUR_WALLET_ADDRESS",
-  "pkey": "YOUR_PRIVATE_KEY"
-}
 ```
 
 ## ⚙️ 설정 파라미터
@@ -62,32 +56,7 @@ python hyperliquid_hip_mm.py
 | `ATR_PERIOD` | 14 | ATR 계산 기간 |
 | `BASE_SPREAD` | 0.001 | 기준 스프레드 (0.1%) |
 | `VOL_MULTIPLIER_MIN` | 0.5 | 최소 변동성 배수 (스프레드 50%까지 축소) |
-| `VOL_MULTIPLIER_MAX` | 2.0 | 최대 변동성 배수 (스프레드 200%까지 확대) |
-
-### 주문 분배 예시
-`ORDER_SIZE_USD = 300`, `ORDER_RATIOS = [0.5, 0.2, 0.1, 0.1, 0.1]`인 경우:
-- 1단계 (0.1% 스프레드): $150
-- 2단계 (0.2% 스프레드): $60
-- 3단계 (0.3% 스프레드): $30
-- 4단계 (0.4% 스프레드): $30
-- 5단계 (0.5% 스프레드): $30
-
-## 🛡️ 보안
-
-- `config.json`은 `.gitignore`에 포함되어 Git에 추적되지 않습니다
-- Private Key는 절대 공유하지 마세요
-- 실수로 커밋하지 않도록 주의하세요
-
-## 📝 파일 구조
-```
-├── hyperliquid_spot_mm.py    # Spot 거래 (UBTC)
-├── hyperliquid_hip_mm.py     # HIP3 토큰 (XYZ)
-├── config.example.json       # 설정 템플릿
-└── config.json               # 실제 설정 (Git 제외)
-```
-
-## 💡 팁
-
+| `VOL_M후
 - 변동성이 높은 시장에서는 `ATR_PERIOD`를 줄여 빠르게 반응
 - 인벤토리 관리를 강화하려면 `INVENTORY_SKEW_MULTIPLIER`를 높임
 - 체결률을 높이려면 `BUY_SPREADS`/`SELL_SPREADS`를 줄임
