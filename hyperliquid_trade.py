@@ -35,11 +35,11 @@ class HyperliquidTrader:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def _api_request(self, request_type, **extra_params):
+    def _api_request(self, request_type, exclude_dex=False, **extra_params):
         """Common method for API POST requests"""
         try:
             payload = {'type': request_type, 'user': self.address}
-            if self.dex:
+            if self.dex and not exclude_dex:
                 payload['dex'] = self.dex
             payload.update(extra_params)
 
@@ -180,7 +180,7 @@ class HyperliquidTrader:
 
     def get_perp_balance(self):
         """Get perp account balance (margin)"""
-        data = self._api_request('clearinghouseState')
+        data = self._api_request('clearinghouseState', exclude_dex=True)
 
         if not data:
             return 0
