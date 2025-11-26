@@ -56,7 +56,7 @@ python hyperliquid_hip_mm.py
 | `ATR_PERIOD` | 14 | ATR 계산 기간 |
 | `BASE_SPREAD` | 0.001 | 기준 스프레드 (0.1%) |
 | `VOL_MULTIPLIER_MIN` | 0.5 | 최소 변동성 배수 (스프레드 50%까지 축소) |
-| `VOL_M후
+
 - 변동성이 높은 시장에서는 `ATR_PERIOD`를 줄여 빠르게 반응
 - 인벤토리 관리를 강화하려면 `INVENTORY_SKEW_MULTIPLIER`를 높임
 - 체결률을 높이려면 `BUY_SPREADS`/`SELL_SPREADS`를 줄임
