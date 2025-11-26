@@ -1,0 +1,4 @@
+eth_account==0.13.7
+hyperliquid==0.4.66
+numpy==2.3.5
+Requests==2.32.5
