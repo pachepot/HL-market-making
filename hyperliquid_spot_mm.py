@@ -27,12 +27,12 @@ ORDER_RATIOS = [0.50, 0.20, 0.10, 0.10, 0.10]
 MIN_SELL_RATIO = 0.1
 MAX_COIN_RATIO = 0.7
 TARGET_COIN_RATIO = 0.5
-INVENTORY_SKEW_MULTIPLIER = 1.5
+INVENTORY_SKEW_MULTIPLIER = 1
 
 # ATR settings
 ATR_INTERVAL = '5m'
 ATR_PERIOD = 14
-BASE_SPREAD = 0.001  # 0.1% 기준
+BASE_SPREAD = 0.001
 VOL_MULTIPLIER_MIN = 0.5
 VOL_MULTIPLIER_MAX = 3.0
 
@@ -130,18 +130,6 @@ class MarketMaker:
                 await asyncio.sleep(delay)
         return results
 
-    @staticmethod
-    def _display_orders(orders_list, order_type, limit=5):
-        """Helper to display order list"""
-        if not orders_list:
-            return
-
-        print(f"  {order_type} Orders:")
-        sorted_orders = sorted(orders_list, key=lambda x: x['price'], reverse=(order_type == 'Buy'))
-        for order in sorted_orders[:limit]:
-            age = (time.time() * 1000 - order['timestamp']) / 1000 / 60
-            print(f"    {order['size']:.6f} @ ${order['price']:.2f} (OID: {order['oid']}, {age:.1f}min ago)")
-
     async def get_mid_price(self):
         """Get mid price via allMids API"""
         try:
@@ -161,116 +149,65 @@ class MarketMaker:
             print(f"Balance error: {e}")
             return 0, 0
 
-    async def calculate_inventory_ratio(self, mid_price):
-        """Calculate coin to total value ratio"""
-        coin_balance, usdc_balance = await self.get_balance()
-
-        if mid_price <= 0:
-            return 0.5, coin_balance, usdc_balance
-
-        coin_value = coin_balance * mid_price
-        total_value = coin_value + usdc_balance
-        coin_ratio = coin_value / total_value if total_value > 0 else 0.5
-
-        return coin_ratio, coin_balance, usdc_balance
-
-    async def place_buy_orders(self, mid_price, vol_multiplier=1.0):
-        """Place 5-tier buy orders with inventory-adjusted spreads"""
+    async def place_orders(self, side, mid_price, coin_ratio, coin_balance, usdc_balance, vol_multiplier, open_orders_count):
+        """Place 5-tier orders (unified for buy/sell) with inventory-adjusted spreads"""
         if not self.trading_enabled:
             return False
 
-        try:
-            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
-            buy_orders_count = len([o for o in open_orders if o['side'] == 'buy'])
+        is_buy = (side == 'buy')
+        side_name = 'BUY' if is_buy else 'SELL'
 
-            if buy_orders_count >= MAX_OPEN_ORDERS:
-                print(f"  Max open buy orders reached ({buy_orders_count}/{MAX_OPEN_ORDERS}), skipping")
+        # Check max open orders
+        if open_orders_count >= MAX_OPEN_ORDERS:
+            print(f"  Max open {side_name} orders reached ({open_orders_count}/{MAX_OPEN_ORDERS}), skipping")
+            return False
+
+        # Check inventory limits
+        if is_buy:
+            if coin_ratio >= MAX_COIN_RATIO:
+                print(f"  Skip {side_name} (coin ratio {coin_ratio:.1%} >= {MAX_COIN_RATIO:.1%})")
                 return False
-        except:
-            pass
+            if usdc_balance < ORDER_SIZE_USD:
+                print(f"  Skip {side_name} (USDC {usdc_balance:.2f} < {ORDER_SIZE_USD})")
+                return False
+        else:
+            if coin_balance < 0.0001:
+                print(f"  Skip {side_name} (BTC balance {coin_balance:.6f} too low)")
+                return False
 
-        coin_ratio, coin_balance, usdc_balance = await self.calculate_inventory_ratio(mid_price)
+        # Calculate spreads
+        buy_spreads, sell_spreads = self.calculate_inventory_adjusted_spreads(coin_ratio, vol_multiplier)
+        spreads = buy_spreads if is_buy else sell_spreads
 
-        if coin_ratio >= MAX_COIN_RATIO:
-            print(f"  Skip buy (coin ratio {coin_ratio:.1%} >= {MAX_COIN_RATIO:.1%})")
-            return False
-
-        if usdc_balance < ORDER_SIZE_USD:
-            print(f"  Skip buy (USDC {usdc_balance:.2f} < {ORDER_SIZE_USD})")
-            return False
-
-        buy_spreads, _ = self.calculate_inventory_adjusted_spreads(coin_ratio, vol_multiplier)
+        # Build orders
         orders = []
-
-        for ratio, spread in zip(ORDER_RATIOS, buy_spreads):
+        for ratio, spread in zip(ORDER_RATIOS, spreads):
             usd_amount = ORDER_SIZE_USD * ratio
-            price = self.format_price(mid_price * (1 - spread))
+            price = self.format_price(mid_price * (1 - spread if is_buy else 1 + spread))
             qty = self.format_quantity(usd_amount / price)
             orders.append((qty, price))
 
+        # Check sell quantity
+        if not is_buy:
+            total_sell_qty = sum(qty for qty, _ in orders)
+            if total_sell_qty > coin_balance:
+                print(f"  Insufficient BTC (need {total_sell_qty:.6f}, have {coin_balance:.6f}), skipping")
+                return False
+
+        # Execute orders
         try:
-            results = await self._place_orders_sequential(self.trader.spot_buy, orders)
+            order_method = self.trader.spot_buy if is_buy else self.trader.spot_sell
+            results = await self._place_orders_sequential(order_method, orders)
             success_count = sum(1 for r in results if not isinstance(r, Exception) and r.get('success'))
 
-            print(f"BUY Orders (ratio: {coin_ratio:.1%}):")
-            for i, ((qty, price), spread) in enumerate(zip(orders, buy_spreads), 1):
-                print(f"  BUY-{i}: {qty} @ {price} (-{spread * 100:.2f}%)")
-            print(f"  Success: {success_count}/5")
+            sign = '-' if is_buy else '+'
+            order_str = "  ".join([f"{sign}{spread*100:.2f}% @{int(price)}" for (qty, price), spread in zip(orders, spreads)])
+            print(f"{side_name}({success_count}/5): {order_str}")
 
             return success_count > 0
 
         except Exception as e:
-            print(f"Buy orders error: {e}")
-            return False
-
-    async def place_sell_orders(self, mid_price, vol_multiplier=1.0):
-        """Place 5-tier sell orders with inventory-adjusted spreads"""
-        if not self.trading_enabled:
-            return False
-
-        try:
-            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
-            sell_orders_count = len([o for o in open_orders if o['side'] == 'sell'])
-
-            if sell_orders_count >= MAX_OPEN_ORDERS:
-                print(f"  Max open sell orders reached ({sell_orders_count}/{MAX_OPEN_ORDERS}), skipping")
-                return False
-        except:
-            pass
-
-        coin_ratio, coin_balance, usdc_balance = await self.calculate_inventory_ratio(mid_price)
-
-        if coin_balance < 0.0001:
-            print(f"  Skip sell (BTC balance {coin_balance:.6f} too low)")
-            return False
-
-        _, sell_spreads = self.calculate_inventory_adjusted_spreads(coin_ratio, vol_multiplier)
-        orders = []
-
-        for ratio, spread in zip(ORDER_RATIOS, sell_spreads):
-            usd_amount = ORDER_SIZE_USD * ratio
-            price = self.format_price(mid_price * (1 + spread))
-            qty = self.format_quantity(usd_amount / price)
-            orders.append((qty, price))
-
-        total_sell_qty = sum(qty for qty, _ in orders)
-        if total_sell_qty > coin_balance:
-            print(f"  Insufficient BTC (need {total_sell_qty:.6f}, have {coin_balance:.6f}), skipping")
-            return False
-
-        try:
-            results = await self._place_orders_sequential(self.trader.spot_sell, orders)
-            success_count = sum(1 for r in results if not isinstance(r, Exception) and r.get('success'))
-
-            print(f"SELL Orders (ratio: {coin_ratio:.1%}):")
-            for i, ((qty, price), spread) in enumerate(zip(orders, sell_spreads), 1):
-                print(f"  SELL-{i}: {qty} @ {price} (+{spread * 100:.2f}%)")
-            print(f"  Success: {success_count}/5")
-
-            return success_count > 0
-
-        except Exception as e:
-            print(f"Sell orders error: {e}")
+            print(f"{side_name} orders error: {e}")
             return False
 
     async def cancel_old_orders(self):
@@ -301,47 +238,44 @@ class MarketMaker:
 
     async def run_single_iteration(self):
         """Single iteration for BTC"""
-        print(f"\n{'=' * 60}")
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Checking {COIN}...")
-
         try:
             mid_price = await self.get_mid_price()
-
             if not mid_price:
-                print(f"  No mid price data")
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] No mid price data")
                 return
 
-            print(f"  Mid Price: ${mid_price:.4f}")
-
+            # Fetch all data once
             vol_multiplier = self.get_volatility_multiplier(mid_price)
-            print(f"  Volatility Multiplier: {vol_multiplier:.2f}x")
+            coin_balance, usdc_balance = await self.get_balance()
+            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
 
-            coin_ratio, coin_balance, usdc_balance = await self.calculate_inventory_ratio(mid_price)
+            # Calculate inventory metrics
             coin_value = coin_balance * mid_price
+            total_value = coin_value + usdc_balance
+            coin_ratio = coin_value / total_value if total_value > 0 else 0.5
 
             deviation = coin_ratio - TARGET_COIN_RATIO
             status = "Balanced" if abs(deviation) < 0.1 else ("BTC Heavy" if deviation > 0 else "USDC Heavy")
+            inventory_adj = deviation * INVENTORY_SKEW_MULTIPLIER
 
-            print(f"  Balance: {coin_balance:.4f} BTC (${coin_value:.2f}) | {usdc_balance:.2f} USDC")
-            print(f"  {status} | Ratio: {coin_ratio:.1%} (target: {TARGET_COIN_RATIO:.1%})")
+            # Display info
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] {COIN} | Mid: ${mid_price:,.2f} | Vol: {vol_multiplier:.2f}x | Inv: {inventory_adj:+.2f} (ratio: {coin_ratio:.1%})")
+            print(f"Balance: {coin_balance:.4f} BTC (${coin_value:,.0f}) | {usdc_balance:,.0f} USDC | {status} (target: {TARGET_COIN_RATIO:.1%})")
 
-            await self.place_buy_orders(mid_price, vol_multiplier)
+            # Count open orders
+            buy_orders_count = len([o for o in open_orders if o['side'] == 'buy'])
+            sell_orders_count = len([o for o in open_orders if o['side'] == 'sell'])
+
+            # Place orders
+            await self.place_orders('buy', mid_price, coin_ratio, coin_balance, usdc_balance, vol_multiplier, buy_orders_count)
 
             if coin_ratio >= MIN_SELL_RATIO:
-                await self.place_sell_orders(mid_price, vol_multiplier)
+                await self.place_orders('sell', mid_price, coin_ratio, coin_balance, usdc_balance, vol_multiplier, sell_orders_count)
+
+            print(f"Open Orders - Buy: {buy_orders_count} | Sell: {sell_orders_count}")
 
         except Exception as e:
-            print(f"  Price error: {e}")
-
-        try:
-            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
-            buy_orders = [o for o in open_orders if o['side'] == 'buy']
-            sell_orders = [o for o in open_orders if o['side'] == 'sell']
-
-            print(f"\nOpen Orders - Buy: {len(buy_orders)} | Sell: {len(sell_orders)}")
-
-        except Exception as e:
-            print(f"\nOpen Orders: Unable to fetch - {e}")
+            print(f"  Error: {e}")
 
         await self.cancel_old_orders()
 

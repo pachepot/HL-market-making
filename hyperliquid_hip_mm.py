@@ -24,8 +24,8 @@ SHORT_SPREADS = [0.001, 0.002, 0.003, 0.004, 0.005]
 ORDER_RATIOS = [0.50, 0.20, 0.10, 0.10, 0.10]
 
 # Position limits
-MAX_POSITION_USD = 10000
-INVENTORY_SKEW_MULTIPLIER = 1.5
+MAX_POSITION_USD = 15000
+INVENTORY_SKEW_MULTIPLIER = 0.25
 
 # ATR settings
 ATR_INTERVAL = '5m'
@@ -129,18 +129,6 @@ class PerpMarketMaker:
                 await asyncio.sleep(delay)
         return results
 
-    @staticmethod
-    def _display_orders(orders_list, order_type, limit=5):
-        """Helper to display order list"""
-        if not orders_list:
-            return
-
-        print(f"  {order_type} Orders:")
-        sorted_orders = sorted(orders_list, key=lambda x: x['price'], reverse=(order_type == 'Long'))
-        for order in sorted_orders[:limit]:
-            age = (time.time() * 1000 - order['timestamp']) / 1000 / 60
-            print(f"    {order['size']:.6f} @ ${order['price']:.2f} (OID: {order['oid']}, {age:.1f}min ago)")
-
     async def get_mid_price(self):
         """Get mid price via allMids API"""
         try:
@@ -167,115 +155,54 @@ class PerpMarketMaker:
             print(f"Balance error: {e}")
             return 0
 
-    async def calculate_position_ratio(self, mid_price):
-        """Calculate position to max position ratio"""
-        position = await self.get_position()
-        position_size = position['size']
-
-        if mid_price <= 0:
-            return 0, position
-
-        position_value = abs(position_size * mid_price)
-        position_ratio = position_value / MAX_POSITION_USD if MAX_POSITION_USD > 0 else 0
-
-        # Negative ratio for short, positive for long
-        if position_size < 0:
-            position_ratio = -position_ratio
-
-        return position_ratio, position
-
-    async def place_long_orders(self, mid_price, vol_multiplier=1.0):
-        """Place 5-tier long orders with inventory-adjusted spreads"""
+    async def place_orders(self, side, mid_price, position_value, position_ratio, vol_multiplier, open_orders_count):
+        """Place 5-tier orders (unified for long/short) with inventory-adjusted spreads"""
         if not self.trading_enabled:
             return False
 
-        try:
-            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
-            buy_orders_count = len([o for o in open_orders if o['side'] == 'buy'])
+        is_long = (side == 'long')
+        side_name = 'LONG' if is_long else 'SHORT'
+        order_side = 'buy' if is_long else 'sell'
 
-            if buy_orders_count >= MAX_OPEN_ORDERS:
-                print(f"  � Max open long orders reached ({buy_orders_count}/{MAX_OPEN_ORDERS}), skipping")
-                return False
-        except:
-            pass
-
-        position_ratio, position = await self.calculate_position_ratio(mid_price)
-        position_value = position['size'] * mid_price
-
-        # Skip if already at max long position
-        if position_value >= MAX_POSITION_USD:
-            print(f"  Skip long (position ${position_value:.2f} >= max ${MAX_POSITION_USD})")
+        # Check max open orders
+        if open_orders_count >= MAX_OPEN_ORDERS:
+            print(f"  Max open {side_name} orders reached ({open_orders_count}/{MAX_OPEN_ORDERS}), skipping")
             return False
 
-        long_spreads, _ = self.calculate_inventory_adjusted_spreads(position_ratio, vol_multiplier)
-        orders = []
+        # Check position limits
+        if is_long and position_value >= MAX_POSITION_USD:
+            print(f"  Skip {side_name} (position ${position_value:.2f} >= max ${MAX_POSITION_USD})")
+            return False
+        elif not is_long and position_value <= -MAX_POSITION_USD:
+            print(f"  Skip {side_name} (position ${position_value:.2f} <= -max ${MAX_POSITION_USD})")
+            return False
 
-        for ratio, spread in zip(ORDER_RATIOS, long_spreads):
+        # Calculate spreads
+        long_spreads, short_spreads = self.calculate_inventory_adjusted_spreads(position_ratio, vol_multiplier)
+        spreads = long_spreads if is_long else short_spreads
+
+        # Build orders
+        orders = []
+        for ratio, spread in zip(ORDER_RATIOS, spreads):
             usd_amount = ORDER_SIZE_USD * ratio
-            price = self.format_price(mid_price * (1 - spread))
+            price = self.format_price(mid_price * (1 - spread if is_long else 1 + spread))
             qty = self.format_quantity(usd_amount / price)
             orders.append((qty, price))
 
+        # Execute orders
         try:
-            results = await self._place_orders_sequential(self.trader.perp_long, orders)
+            order_method = self.trader.perp_long if is_long else self.trader.perp_short
+            results = await self._place_orders_sequential(order_method, orders)
             success_count = sum(1 for r in results if not isinstance(r, Exception) and r.get('success'))
 
-            print(f"LONG Orders (pos ratio: {position_ratio:.1%}, adj spreads):")
-            for i, ((qty, price), spread) in enumerate(zip(orders, long_spreads), 1):
-                print(f"LONG-{i}: {qty} @ {price} (-{spread * 100:.2f}%)")
-            print(f"Success: {success_count}/5")
+            sign = '-' if is_long else '+'
+            order_str = "  ".join([f"{sign}{spread*100:.2f}% @{int(price)}" for (qty, price), spread in zip(orders, spreads)])
+            print(f"{side_name}({success_count}/5): {order_str}")
 
             return success_count > 0
 
         except Exception as e:
-            print(f"L Long orders error: {e}")
-            return False
-
-    async def place_short_orders(self, mid_price, vol_multiplier=1.0):
-        """Place 5-tier short orders with inventory-adjusted spreads"""
-        if not self.trading_enabled:
-            return False
-
-        try:
-            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
-            sell_orders_count = len([o for o in open_orders if o['side'] == 'sell'])
-
-            if sell_orders_count >= MAX_OPEN_ORDERS:
-                print(f"  � Max open short orders reached ({sell_orders_count}/{MAX_OPEN_ORDERS}), skipping")
-                return False
-        except:
-            pass
-
-        position_ratio, position = await self.calculate_position_ratio(mid_price)
-        position_value = position['size'] * mid_price
-
-        # Skip if already at max short position
-        if position_value <= -MAX_POSITION_USD:
-            print(f"  Skip short (position ${position_value:.2f} <= -max ${MAX_POSITION_USD})")
-            return False
-
-        _, short_spreads = self.calculate_inventory_adjusted_spreads(position_ratio, vol_multiplier)
-        orders = []
-
-        for ratio, spread in zip(ORDER_RATIOS, short_spreads):
-            usd_amount = ORDER_SIZE_USD * ratio
-            price = self.format_price(mid_price * (1 + spread))
-            qty = self.format_quantity(usd_amount / price)
-            orders.append((qty, price))
-
-        try:
-            results = await self._place_orders_sequential(self.trader.perp_short, orders)
-            success_count = sum(1 for r in results if not isinstance(r, Exception) and r.get('success'))
-
-            print(f"=SHORT Orders (pos ratio: {position_ratio:.1%}, adj spreads):")
-            for i, ((qty, price), spread) in enumerate(zip(orders, short_spreads), 1):
-                print(f"SHORT-{i}: {qty} @ {price} (+{spread * 100:.2f}%)")
-            print(f"Success: {success_count}/5")
-
-            return success_count > 0
-
-        except Exception as e:
-            print(f"L Short orders error: {e}")
+            print(f"{side_name} orders error: {e}")
             return False
 
     async def cancel_old_orders(self):
@@ -299,56 +226,48 @@ class PerpMarketMaker:
                             cancelled_short += 1
 
             if cancelled_long > 0 or cancelled_short > 0:
-                print(f"� Cancelled old orders: {cancelled_long} long, {cancelled_short} short (>{ORDER_EXPIRY_MINUTES}min)")
+                print(f"Cancelled old orders: {cancelled_long} long, {cancelled_short} short (>{ORDER_EXPIRY_MINUTES}min)")
 
         except Exception as e:
             print(f"L Cancel old orders error: {e}")
 
     async def run_single_iteration(self):
         """Single iteration for BTC perp"""
-        print(f"\n{'=' * 60}")
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Checking {COIN} Perp...")
-
         try:
             mid_price = await self.get_mid_price()
-
             if not mid_price:
-                print(f"  No mid price data")
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] No mid price data")
                 return
 
-            print(f"  Mid Price: ${mid_price:.4f}")
-
+            # Fetch all data once
             vol_multiplier = self.get_volatility_multiplier(mid_price)
-            print(f"  Volatility Multiplier: {vol_multiplier:.2f}x")
-
-            # Display current position and balance
             position = await self.get_position()
             balance = await self.get_balance()
+            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
+
+            # Calculate position metrics
             position_value = position['size'] * mid_price
+            position_ratio = position_value / MAX_POSITION_USD if MAX_POSITION_USD > 0 else 0
 
             position_status = "Neutral" if abs(position['size']) < 0.0001 else ("Long" if position['size'] > 0 else "Short")
+            inventory_adj = position_ratio * INVENTORY_SKEW_MULTIPLIER
 
-            print(f"Balance: ${balance:.2f}")
-            print(f"Position: {position['size']:.6f} {COIN} (${position_value:.2f})")
-            print(f"  {position_status} | Entry: ${position['entry_price']:.2f} | PnL: ${position['unrealized_pnl']:.2f}")
+            # Display info
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}]\n{COIN} | Mid: ${mid_price:,.2f} | Vol: {vol_multiplier:.2f}x | Inv: {inventory_adj:+.2f} ({position_ratio:+.1%})")
+            print(f"Balance: ${balance:,.0f} | Pos: {position['size']:.3f}{COIN} (${abs(position_value):,.0f}) {position_status} | Entry: ${position['entry_price']:,.0f} | PnL: {position['unrealized_pnl']:+.2f}")
 
-            # Place long and short orders
-            await self.place_long_orders(mid_price, vol_multiplier)
-            await self.place_short_orders(mid_price, vol_multiplier)
+            # Count open orders
+            long_orders_count = len([o for o in open_orders if o['side'] == 'buy'])
+            short_orders_count = len([o for o in open_orders if o['side'] == 'sell'])
 
-        except Exception as e:
-            print(f"  Price error: {e}")
+            # Place orders
+            await self.place_orders('long', mid_price, position_value, position_ratio, vol_multiplier, long_orders_count)
+            await self.place_orders('short', mid_price, position_value, position_ratio, vol_multiplier, short_orders_count)
 
-        # Display current open orders
-        try:
-            open_orders = await asyncio.to_thread(self.trader.get_open_orders)
-            long_orders = [o for o in open_orders if o['side'] == 'buy']
-            short_orders = [o for o in open_orders if o['side'] == 'sell']
-
-            print(f"\nOpen Orders - Long: {len(long_orders)} | Short: {len(short_orders)}")
+            print(f"Open Orders - Long: {long_orders_count} | Short: {short_orders_count}")
 
         except Exception as e:
-            print(f"\nOpen Orders: Unable to fetch - {e}")
+            print(f"  Error: {e}")
 
         # Cancel old orders
         await self.cancel_old_orders()
