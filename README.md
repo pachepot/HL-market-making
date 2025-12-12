@@ -1,10 +1,13 @@
-# Hyperliquid Market Maker Bot
+# 🤖 Hyperliquid Market Maker Bot
 
-Hyperliquid 거래소용 마켓메이커 봇
+## 📋 설치
 
-## ⚙️ 설정
+### 1. 필요한 패키지 설치
+```bash
+pip install -r requirements.txt
+```
 
-`config.json` 예시:
+### 2. `config.json`에 정보 입력
 ```json
 {
   "address": "YOUR_WALLET_ADDRESS",
@@ -56,7 +59,23 @@ python hyperliquid_hip_mm.py
 | `ATR_PERIOD` | 14 | ATR 계산 기간 |
 | `BASE_SPREAD` | 0.001 | 기준 스프레드 (0.1%) |
 | `VOL_MULTIPLIER_MIN` | 0.5 | 최소 변동성 배수 (스프레드 50%까지 축소) |
+| `VOL_MULTIPLIER_MAX` | 2.0 | 최대 변동성 배수 (스프레드 200%까지 확대) |
+
+### 주문 분배 예시
+`ORDER_SIZE_USD = 300`, `ORDER_RATIOS = [0.5, 0.2, 0.1, 0.1, 0.1]`인 경우:
+- 1단계 (0.1% 스프레드): $150
+- 2단계 (0.2% 스프레드): $60
+- 3단계 (0.3% 스프레드): $30
+- 4단계 (0.4% 스프레드): $30
+- 5단계 (0.5% 스프레드): $30
+
+## 💡 팁
 
 - 변동성이 높은 시장에서는 `ATR_PERIOD`를 줄여 빠르게 반응
 - 인벤토리 관리를 강화하려면 `INVENTORY_SKEW_MULTIPLIER`를 높임
 - 체결률을 높이려면 `BUY_SPREADS`/`SELL_SPREADS`를 줄임
+
+## 🛡️ 보안
+
+- `config.json`은 민감한 정보를 포함하고 있으므로 절대 공유하거나 커밋하지 마세요
+- Private Key는 안전하게 보관하세요
