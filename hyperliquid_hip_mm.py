@@ -18,13 +18,13 @@ CHECK_INTERVAL = 60
 MAX_OPEN_ORDERS = 50
 ORDER_EXPIRY_MINUTES = 15
 
-# Spreads and ratios for 5-tier orders
+# Spreads settings
 LONG_SPREADS = [0.001, 0.002, 0.003, 0.004, 0.005]
 SHORT_SPREADS = [0.001, 0.002, 0.003, 0.004, 0.005]
 ORDER_RATIOS = [0.50, 0.20, 0.10, 0.10, 0.10]
 
 # Position limits
-MAX_POSITION_USD = 15000
+MAX_POSITION_USD = 30000
 INVENTORY_SKEW_MULTIPLIER = 0.25
 
 # ATR settings
@@ -242,7 +242,6 @@ class PerpMarketMaker:
             # Fetch all data once
             vol_multiplier = self.get_volatility_multiplier(mid_price)
             position = await self.get_position()
-            balance = await self.get_balance()
             open_orders = await asyncio.to_thread(self.trader.get_open_orders)
 
             # Calculate position metrics
@@ -254,7 +253,7 @@ class PerpMarketMaker:
 
             # Display info
             print(f"\n[{datetime.now().strftime('%H:%M:%S')}]\n{COIN} | Mid: ${mid_price:,.2f} | Vol: {vol_multiplier:.2f}x | Inv: {inventory_adj:+.2f} ({position_ratio:+.1%})")
-            print(f"Balance: ${balance:,.0f} | Pos: {position['size']:.3f}{COIN} (${abs(position_value):,.0f}) {position_status} | Entry: ${position['entry_price']:,.0f} | PnL: {position['unrealized_pnl']:+.2f}")
+            print(f"Pos: {position['size']:.3f}{COIN} (${abs(position_value):,.0f}) {position_status} | Entry: ${position['entry_price']:,.0f} | PnL: {position['unrealized_pnl']:+.2f}")
 
             # Count open orders
             long_orders_count = len([o for o in open_orders if o['side'] == 'buy'])
