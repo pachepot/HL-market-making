@@ -1,6 +1,6 @@
-# 🤖 Hyperliquid Market Maker Bot
+# Hyperliquid Market Maker Bot
 
-## 📋 설치
+## 설치
 
 ### 1. 필요한 패키지 설치
 ```bash
@@ -15,11 +15,16 @@ pip install -r requirements.txt
 }
 ```
 
-## 🚀 실행 방법
+## 실행 방법
 
 ### Spot 마켓메이킹 (UBTC)
 ```bash
 python hyperliquid_spot_mm.py
+```
+
+### HIP3 마켓메이킹 (BTC)
+```bash
+python hyperliquid_futures_mm.py
 ```
 
 ### HIP3 마켓메이킹 (XYZ)
@@ -27,7 +32,7 @@ python hyperliquid_spot_mm.py
 python hyperliquid_hip_mm.py
 ```
 
-## ⚙️ 설정 파라미터
+## 설정 파라미터
 
 ### 기본 설정
 | 파라미터 | 기본값 | 설명 |
@@ -36,6 +41,7 @@ python hyperliquid_hip_mm.py
 | `CHECK_INTERVAL` | 60 | 주문을 취소하고 재배치할 간격 (초) |
 | `MAX_OPEN_ORDERS` | 30 | 오픈 주문의 최대 수량 (한 사이드당) |
 | `ORDER_EXPIRY_MINUTES` | 10 | 주문 만료 시간 (N분 후 자동 취소) |
+| `MAX_POSITION_USD` | 30000 | 최대 포지션 크기 (달러 기준) |
 
 ### 스프레드 및 주문 분배
 | 파라미터 | 기본값 | 설명 |
@@ -69,13 +75,9 @@ python hyperliquid_hip_mm.py
 - 4단계 (0.4% 스프레드): $30
 - 5단계 (0.5% 스프레드): $30
 
-## 💡 팁
+## 팁 및 주의사항
 
+- 선물이나 xyz의 경우 미리 하이퍼리퀴드에서 배율을 낮춰두는 걸 매우 추천합니다
 - 변동성이 높은 시장에서는 `ATR_PERIOD`를 줄여 빠르게 반응
 - 인벤토리 관리를 강화하려면 `INVENTORY_SKEW_MULTIPLIER`를 높임
 - 체결률을 높이려면 `BUY_SPREADS`/`SELL_SPREADS`를 줄임
-
-## 🛡️ 보안
-
-- `config.json`은 민감한 정보를 포함하고 있으므로 절대 공유하거나 커밋하지 마세요
-- Private Key는 안전하게 보관하세요
