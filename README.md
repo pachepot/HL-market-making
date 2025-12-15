@@ -41,6 +41,7 @@ python hyperliquid_hip_mm.py
 | `CHECK_INTERVAL` | 60 | 주문을 취소하고 재배치할 간격 (초) |
 | `MAX_OPEN_ORDERS` | 30 | 오픈 주문의 최대 수량 (한 사이드당) |
 | `ORDER_EXPIRY_MINUTES` | 10 | 주문 만료 시간 (N분 후 자동 취소) |
+| `MAX_POSITION_USD` | 30000 | 최대 포지션 크기 (달러 기준) |
 
 ### 스프레드 및 주문 분배
 | 파라미터 | 기본값 | 설명 |
