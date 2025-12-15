@@ -22,6 +22,11 @@ pip install -r requirements.txt
 python hyperliquid_spot_mm.py
 ```
 
+### HIP3 마켓메이킹 (BTC)
+```bash
+python hyperliquid_futures_mm.py
+```
+
 ### HIP3 마켓메이킹 (XYZ)
 ```bash
 python hyperliquid_hip_mm.py
@@ -74,8 +79,3 @@ python hyperliquid_hip_mm.py
 - 변동성이 높은 시장에서는 `ATR_PERIOD`를 줄여 빠르게 반응
 - 인벤토리 관리를 강화하려면 `INVENTORY_SKEW_MULTIPLIER`를 높임
 - 체결률을 높이려면 `BUY_SPREADS`/`SELL_SPREADS`를 줄임
-
-## 🛡️ 보안
-
-- `config.json`은 민감한 정보를 포함하고 있으므로 절대 공유하거나 커밋하지 마세요
-- Private Key는 안전하게 보관하세요
