@@ -116,7 +116,9 @@ class HyperliquidTrader:
                 return None
 
             data = response.json()
-            mid_price = float(data.get(self.coin, 0))
+
+            key = self.symbol if self.symbol.startswith('@') else self.coin
+            mid_price = float(data.get(key, 0))
             return mid_price if mid_price > 0 else None
         except Exception as e:
             print(f"Mid price error: {e}")
